@@ -4,19 +4,21 @@ import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	_ "bazil.org/fuse/fs/fstestutil"
-	"bazil.org/fuse/fuseutil"
-	"context"
 	"fmt"
 	"github.com/upyun/go-sdk/upyun"
-	"log"
-	"os"
-	"sync/atomic"
-	"syscall"
-	"time"
 	"upyun-fs/config"
 )
 
 var vmConf = config.Config{}
+
+type FSSys struct {
+	Client *upyun.UpYun;
+}
+
+const ROOTPATH = "/"
+
+var FSsysTemp = FSSys{};
+
 func Run(conf config.Config) error {
 	c, err := fuse.Mount(
 		conf.Mountpoint,
@@ -38,12 +40,7 @@ func Run(conf config.Config) error {
 	}
 
 	srv := fs.New(c, nil)
-	filesys := &FS{
-		// We pre-create the clock node so that it's always the same
-		// object returned from all the Lookups. You could carefully
-		// track its lifetime between Lookup&Forget, and have the
-		// ticking & invalidation happen only when active, but let's
-		// keep this example simple.
+	filesys := &UFS{
 		testFile: &File{
 			fuse: srv,
 		},
@@ -63,105 +60,34 @@ func Run(conf config.Config) error {
 	return nil
 }
 
-type FS struct {
+var _ fs.FS = (*UFS)(nil)
+
+func (f *UFS) Root() (fs.Node, error) {
+	return &Dir{ufs: f, Path: f.option.FilerMountRootPath}, nil
+}
+
+type UFS struct {
 	testFile *File
+	option   Option
 }
 
-var _ fs.FS = (*FS)(nil)
-
-func (f *FS) Root() (fs.Node, error) {
-	return &Dir{fs: f}, nil
+type Entry struct {
+	Name        string
+	IsDirectory bool
+	Attributes  *FuseAttributes
 }
 
-// Dir implements both Node and Handle for the root directory.
-type Dir struct {
-	fs *FS
+
+var _ = fs.Node(&Dir{})
+
+// 方法区域，
+func GetDirDataSize(path string) uint64 {
+	FInfo, _ := FSsysTemp.Client.GetInfo(path)
+	return uint64(FInfo.Size)
 }
 
-var _ fs.Node = (*Dir)(nil)
-
-func (d *Dir) Attr(ctx context.Context, a *fuse.Attr) error {
-	a.Inode = 1
-	a.Mode = os.ModeDir | 0555
-	return nil
-}
-
-var _ fs.NodeStringLookuper = (*Dir)(nil)
-
-func (d *Dir) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if name != "" {
-		return d.fs.testFile, nil
-	}
-	return nil, fuse.ENOENT
-}
-
-var _ fs.HandleReadDirAller = (*Dir)(nil)
-
-func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	//TODO 真的懒的写了。。。
-	return GetInDirListFiles(vmConf), nil
-}
-
-type File struct {
-	fs.NodeRef
-	fuse     *fs.Server
-	content  atomic.Value
-	count    uint64
-	fileSize uint64
-}
-
-var _ fs.Node = (*File)(nil)
-
-func (f *File) Attr(ctx context.Context, a *fuse.Attr) error {
-	a.Inode = 2
-	a.Mode = 0444
-	a.Size = f.fileSize
-	return nil
-}
-
-var _ fs.NodeOpener = (*File)(nil)
-
-func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
-	if !req.Flags.IsReadOnly() {
-		return nil, fuse.Errno(syscall.EACCES)
-	}
-	resp.Flags |= fuse.OpenKeepCache
-	return f, nil
-}
-
-var _ fs.Handle = (*File)(nil)
-
-var _ fs.HandleReader = (*File)(nil)
-
-func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
-	t := f.content.Load().(string)
-	fuseutil.HandleRead(req, resp, []byte(t))
-	return nil
-}
-
-func (f *File) tick() {
-	// Intentionally a variable-length format, to demonstrate size changes.
-	f.count++
-	s := fmt.Sprintf("%d\t%s\n", f.count, time.Now())
-	f.content.Store(s)
-
-	// For simplicity, this example tries to send invalidate
-	// notifications even when the kernel does not hold a reference to
-	// the node, so be extra sure to ignore ErrNotCached.
-	if err := f.fuse.InvalidateNodeData(f); err != nil && err != fuse.ErrNotCached {
-		log.Printf("invalidate error: %v", err)
-	}
-}
-
-func (f *File) update() {
-	tick := time.NewTicker(1 * time.Second)
-	defer tick.Stop()
-	for range tick.C {
-		f.tick()
-	}
-}
-
-func GetInDirListFiles(conf config.Config) []fuse.Dirent {
+// 获得文件夹下的文件列表以及文件夹列表
+func GetInDirListFiles(conf config.Config,dirPath string) []fuse.Dirent {
 	var dirDirs = []fuse.Dirent{}
 	up := upyun.NewUpYun(&upyun.UpYunConfig{
 		//some args
@@ -169,19 +95,18 @@ func GetInDirListFiles(conf config.Config) []fuse.Dirent {
 		Operator: conf.Upx.Operator,
 		Password: conf.Upx.Password,
 	})
+	FSsysTemp.Client = up;
 	usage, _ := up.Usage()
 	fmt.Println(fmt.Sprintf(" %d MB", usage/1024/1024))
 	fInfoChan := make(chan *upyun.FileInfo, 50)
 	go func() {
 		_ = up.List(&upyun.GetObjectsConfig{
-			Path:        "/",
+			Path:        dirPath,
 			ObjectsChan: fInfoChan,
 		})
 	}();
-	var InodeIndex uint64 = 100;
 	for fileList := range fInfoChan {
-		InodeIndex++;
-		dirDirs = append(dirDirs, fuse.Dirent{Inode: InodeIndex, Name: fileList.Name, Type: GetFileType(fileList)})
+		dirDirs = append(dirDirs, fuse.Dirent{Name: fileList.Name, Type: GetFileType(fileList)})
 	}
 	return dirDirs;
 }
