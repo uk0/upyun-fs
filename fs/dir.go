@@ -77,16 +77,24 @@ func (d *Dir) Attr(ctx context.Context, attr *fuse.Attr) error {
 		attr.Valid = time.Second
 		return nil
 	}
-	info := GetINFO(d.Path)
 
+	info ,err:= GetINFO(d.Path)
+
+	if err!=nil{
+		return nil
+	}
 	// 断点
-	data,_:=json.Marshal(info)
+	data, _ := json.Marshal(info)
 	fmt.Println(fmt.Sprintf("3 Node Attr INFO  === %s ", string(data)))
 	if info.IsDir {
+		attr.Atime = time.Time{}
+		attr.Ctime = time.Time{}
 		attr.Size = uint64(info.Size)
 		attr.Mode = os.ModeDir
 		return nil
 	} else {
+		attr.Atime = time.Time{}
+		attr.Ctime = time.Time{}
 		attr.Mode = os.FileMode(os.ModePerm) //中间没有存储 只能0777了
 		attr.Size = uint64(info.Size)
 		return nil
@@ -94,6 +102,12 @@ func (d *Dir) Attr(ctx context.Context, attr *fuse.Attr) error {
 
 	return nil
 }
+
+func (dir *Dir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
+	fmt.Println(fmt.Sprintf("-------------------- Mkdir --------------------"))
+	return nil, nil
+}
+
 
 func (dir *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.LookupResponse) (node fs.Node, err error) {
 
@@ -105,7 +119,11 @@ func (dir *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.
 
 	fmt.Println(fmt.Sprintf("1-2 layer NodeStringLookuper  Path %s", dir.Path))
 
-	var entry = GetINFO(dir.Path)
+	entry,err := GetINFO(dir.Path)
+
+	if err!=nil{
+		return nil, fuse.EIO
+	}
 
 	if entry != nil {
 		jsonData, _ := json.Marshal(entry)
@@ -154,9 +172,11 @@ func (d *Dir) ReadDirAll(ctx context.Context) (ret []fuse.Dirent, err error) {
 
 	for entry := range fInfoChan {
 		if entry.IsDir {
+			fmt.Println(fmt.Sprintf("fInfoChan IsDir Info %s",entry.Name))
 			dirent := fuse.Dirent{Name: entry.Name, Type: fuse.DT_Dir}
 			ret = append(ret, dirent)
 		} else {
+			fmt.Println(fmt.Sprintf("fInfoChan NotDir Info %s",entry.Name))
 			dirent := fuse.Dirent{Name: entry.Name, Type: fuse.DT_File}
 			ret = append(ret, dirent)
 		}
