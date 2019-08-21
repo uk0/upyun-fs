@@ -65,6 +65,7 @@ var _ fs.HandleReader = (*File)(nil)
 func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	t := f.content.Load().(string)
 	fuseutil.HandleRead(req, resp, []byte(t))
+	fmt.Println("4 FileRead--------------------------------------")
 	return nil
 }
 

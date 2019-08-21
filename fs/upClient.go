@@ -4,7 +4,7 @@ import (
 	"github.com/upyun/go-sdk/upyun"
 )
 
-func GetINFO(dirPath string) (*upyun.FileInfo) {
-	FileInfo, _ := FSsysTemp.Client.GetInfo(dirPath)
+func GetINFO(Path string) (*upyun.FileInfo) {
+	FileInfo, _ := FSsysTemp.Client.GetInfo(Path)
 	return FileInfo;
 }

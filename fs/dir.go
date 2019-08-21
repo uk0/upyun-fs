@@ -69,14 +69,29 @@ var _ = fs.Node(&Dir{})
 var _ = fs.NodeRequestLookuper(&Dir{})
 var _ = fs.HandleReadDirAller(&Dir{})
 
-func (d *Dir) Attr(ctx context.Context, a *fuse.Attr) error {
-	a.Inode = 1
-	a.Mode = os.ModeDir | 0555
-	fmt.Println("3 Node Attr")
-	fmt.Println(d.Path)
-	if d == nil {
-		a.Size = GetDirDataSize(ROOTPATH)
+func (d *Dir) Attr(ctx context.Context, attr *fuse.Attr) error {
+	fmt.Println("3 Node Attr  === " + d.Path)
+	// 如果和主目录一致
+	if d.Path == ROOTPATH {
+		attr.Mode = os.ModeDir
+		attr.Valid = time.Second
+		return nil
 	}
+	info := GetINFO(d.Path)
+
+	// 断点
+	data,_:=json.Marshal(info)
+	fmt.Println(fmt.Sprintf("3 Node Attr INFO  === %s ", string(data)))
+	if info.IsDir {
+		attr.Size = uint64(info.Size)
+		attr.Mode = os.ModeDir
+		return nil
+	} else {
+		attr.Mode = os.FileMode(os.ModePerm) //中间没有存储 只能0777了
+		attr.Size = uint64(info.Size)
+		return nil
+	}
+
 	return nil
 }
 
@@ -96,11 +111,16 @@ func (dir *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.
 		jsonData, _ := json.Marshal(entry)
 		fmt.Println(fmt.Sprintf("data Json %s", string(jsonData)))
 		if entry.IsDir {
-			node = &Dir{Path: path.Join(dir.Path, req.Name), ufs: dir.ufs,option:Option{}}
+			node = &Dir{Path: path.Join(dir.Path, req.Name), ufs: dir.ufs, option: Option{}}
 		} else {
 			node = dir.newFile(req.Name, &Entry{
 				Name:        entry.Name,
 				IsDirectory: entry.IsDir,
+				Attributes: &FuseAttributes{
+					FileSize: uint64(entry.Size),
+					FileMode: uint32(os.ModePerm),
+					UserName: "test",
+				},
 			})
 		}
 
@@ -126,8 +146,20 @@ func (dir *Dir) newFile(name string, entry *Entry) *File {
 
 var _ = fs.HandleReadDirAller(&Dir{})
 
-func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+func (d *Dir) ReadDirAll(ctx context.Context) (ret []fuse.Dirent, err error) {
 	//TODO 真的懒的写了。。。
 	fmt.Println("2 HandleReadDirAller ")
-	return GetInDirListFiles(vmConf, d.Path), nil
+
+	fInfoChan := GetInDirListFiles(vmConf, d.Path)
+
+	for entry := range fInfoChan {
+		if entry.IsDir {
+			dirent := fuse.Dirent{Name: entry.Name, Type: fuse.DT_Dir}
+			ret = append(ret, dirent)
+		} else {
+			dirent := fuse.Dirent{Name: entry.Name, Type: fuse.DT_File}
+			ret = append(ret, dirent)
+		}
+	}
+	return ret, nil
 }
