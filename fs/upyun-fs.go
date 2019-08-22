@@ -26,7 +26,7 @@ func Run(conf config.Config) error {
 		fuse.FSName("upyun-fs"),
 		fuse.Subtype("upyun-fs"),
 		fuse.LocalVolume(),
-		fuse.VolumeName("Test upyun  filesystem"),
+		fuse.VolumeName("upyun-fs.com"),
 		fuse.MaxReadahead(64 * 1024 * 1024), // in bytes
 		fuse.AsyncRead(),
 		fuse.WritebackCache(),

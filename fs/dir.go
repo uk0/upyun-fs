@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/syndtr/goleveldb/leveldb"
 	"os"
 	"path"
 	"time"
@@ -51,6 +52,7 @@ type Dir struct {
 	option     Option
 	ufs        *UFS
 	attributes FuseAttributes
+	db       *leveldb.DB
 }
 
 func (dir *Dir) setRootDirAttributes(attr *fuse.Attr) {

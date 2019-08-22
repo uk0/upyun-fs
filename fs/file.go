@@ -6,6 +6,7 @@ import (
 	"bazil.org/fuse/fuseutil"
 	"context"
 	"fmt"
+	"github.com/syndtr/goleveldb/leveldb"
 	"io/ioutil"
 	"log"
 	"sync/atomic"
@@ -31,6 +32,7 @@ type File struct {
 	dir      *Dir
 	ufs      *UFS
 	isOpen   bool
+	db       *leveldb.DB
 }
 
 var _ fs.Node = (*File)(nil)
