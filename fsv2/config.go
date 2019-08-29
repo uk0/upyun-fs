@@ -1,4 +1,4 @@
-package config
+package fsv2
 
 import (
 	"flag"
