@@ -10,11 +10,17 @@ import (
 func init() {
 	var err error
 	//数据存储路径和一些初始文件
-	db, err := leveldb.OpenFile("./levelDB/db", nil)
+	db1, err := leveldb.OpenFile("./levelDB/info", nil)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fsv2.FSsysTemp.DB = db
+	//数据存储路径和一些初始文件
+	db2, err := leveldb.OpenFile("./levelDB/table", nil)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	fsv2.FSsysTemp.DBInfo = db1
+	fsv2.FSsysTemp.DBTable = db2
 }
 func main() {
 

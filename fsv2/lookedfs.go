@@ -1,13 +1,16 @@
 package fsv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/billziss-gh/cgofuse/fuse"
+	"github.com/upyun/go-sdk/upyun"
 	"hash/fnv"
 	"strings"
 )
 
 const (
+	filename = "hello"
 	ROOTPATH = "/"
 )
 
@@ -32,11 +35,8 @@ func GetLastIndex(path string) string {
 }
 
 func (self *Lookedfs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) {
-	var fileNmae = GetLastIndex(path)
-	infoFIle := GetKVStore(fileNmae)
-	fmt.Println("Path = " + fmt.Sprint(HasKVStore(path)))
+	infoFIle, _ := GetPathInfo(path)
 
-	fmt.Println(" GET KV " + fmt.Sprint(infoFIle))
 	switch infoFIle.IsDir {
 	case true:
 		stat.Mode = fuse.S_IFDIR | 0555
@@ -94,36 +94,62 @@ func (self *Lookedfs) Write(path string, buff []byte, ofst int64, fh uint64) (n 
 	return
 }
 
-func (self *Lookedfs) Readdir(path string,
-	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
-	ofst int64,
-	fh uint64) (errc int) {
+func (self *Lookedfs) Readdir(path string, fill func(name string, stat *fuse.Stat_t, ofst int64) bool, ofst int64, fh uint64) (errc int) {
 	fill(".", nil, 0)
 	fill("..", nil, 0)
-	for _, fileObj := range GetAllFileList() {
+	fill(filename, nil, 0)
+	// 判断缓存是否成立
+
+	var Dirs = []UPFSFiles{}
+	if TableHasIn(path){
+		Dirs = TableSelectsFileArray(path)
+	}else{
+		var DirsChan = make(chan *upyun.FileInfo)
+		go func() {
+			_ = FSsysTemp.Client.List(&upyun.GetObjectsConfig{
+				Path:        path,
+				ObjectsChan: DirsChan,
+			})
+		}();
+		for fileObj := range DirsChan {
+			Dirs = append(Dirs, UPFSFiles{
+				Path:fileObj.Name,
+				Size:fileObj.Size,
+				Name:fileObj.Name,
+				CTime:fileObj.Time,
+				MTime:fileObj.Time,
+			})
+		}
+		// 存储
+		value,_:=json.Marshal(&UPFSFiles{
+			Path:path,
+			Size:0,
+			Name:path,
+			Files:Dirs,
+		})
+		// 数据缓存起来
+		TableInsert(path,value)
+
+	}
+
+
+	for _,fileObj := range Dirs {
+		fmt.Println("----------------------------------------------")
+		fmt.Println(fileObj)
+		fmt.Println("----------------------------------------------")
 		if fileObj.IsDir {
 			fill(fileObj.Name, &fuse.Stat_t{Mode: fuse.S_IFDIR}, 0)
 		} else {
 			fill(fileObj.Name, &fuse.Stat_t{Mode: fuse.S_IFREG, Size: fileObj.Size}, 0)
 		}
-
 	}
 	return 0
-}
-
-//管他呢先存起来
-func Format(files *UPFSFiles) {
-	SaveKVStore(files.Path, files)
 }
 
 func Run(conf Config) {
 	INIT(conf)
 	lookedfs := &Lookedfs{}
 	host := fuse.NewFileSystemHost(lookedfs)
-
-	GetFileObjList(ROOTPATH) // 获得第一批文件 以及文件夹
-
-
 
 	var mountPath = []string{conf.Mountpoint}
 	host.Mount("", mountPath)
